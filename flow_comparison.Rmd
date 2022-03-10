@@ -1,0 +1,249 @@
+---
+title: "Flow Significance"
+author: "Melissa Schussman"
+date: "3/4/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r echo=FALSE, include=FALSE}
+#clear workspace
+rm(list=ls(all=FALSE))
+ls()
+set.seed(123)
+```
+
+
+```{r echo=FALSE, include=FALSE}
+#import libraries for data analysis
+library(data.table)
+library(dplyr)
+library(reshape2)
+library(pander)
+require(gridExtra)
+library(ggpubr)
+library(tidyverse)      
+library(lubridate)      
+library(fpp2)          
+library(zoo)            
+library(openxlsx)
+library(ggplot2)
+library(rstatix)
+library(cowplot)
+library(ggplot2)
+
+
+
+```
+
+```{r echo=FALSE, include=FALSE}
+
+#import data - 
+library(readxl)
+SS <- openxlsx::read.xlsx("~/OneDrive - UWM/Melissa-neighborhoods/final thesis/travel time paper/JI.SS.all.xlsx", sheet = "SS flow", colNames = TRUE) 
+JI <- openxlsx::read.xlsx("~/OneDrive - UWM/Melissa-neighborhoods/final thesis/travel time paper/JI.SS.all.xlsx", sheet = "JI flow", colNames = TRUE) 
+
+
+#confirm date format
+Date <- openxlsx::convertToDate(SS$SampleCollectDate)
+Date <- openxlsx::convertToDate(JI$SampleCollectDate)
+
+#set flow ranks as factor - create subsets
+SS$FlowRank<-as.factor(SS$FlowRank)
+levels(SS$FlowRank)
+SS <-subset(SS, FlowRank == "Low" | FlowRank == "Medium" | FlowRank == "High")
+SS.HVL <-subset(SS, FlowRank == "Low" |  FlowRank == "High")
+SS.low <- subset(SS, FlowRank == "Low")
+SS.high <-subset(SS, FlowRank == "High")
+
+JI$FlowRank<-as.factor(JI$FlowRank)
+levels(JI$FlowRank)
+JI <-subset(JI, FlowRank == "Low" | FlowRank == "Medium" | FlowRank == "High")
+JI.HVL <-subset(JI, FlowRank == "Low" |  FlowRank == "High")
+JI.low <- subset(JI, FlowRank == "Low")
+JI.high <-subset(JI, FlowRank == "High")
+
+```
+```{r echo=FALSE}
+
+#compare dry in both WWTPS
+#merge data
+total <- rbind(JI.low,SS.low)
+#set WWTP as factor
+total$WWTPName<-as.factor(total$WWTPName)
+levels(total$WWTPName)
+total <-subset(total, WWTPName == "Milwaukee Jones Island" | WWTPName == "Milwaukee South Shore")
+t.test(Conc_Capita ~ WWTPName, data = total, paired = TRUE)
+# 
+#compare wet in both WWTPS
+#merge data
+total <- rbind(JI.high,SS.high)
+#set WWTP as factor
+total$WWTPName<-as.factor(total$WWTPName)
+levels(total$WWTPName)
+total <-subset(total, WWTPName == "Milwaukee Jones Island" | WWTPName == "Milwaukee South Shore")
+t.test(Conc_Capita ~ WWTPName, data = total, paired = TRUE)
+
+```
+###SS WWTP
+```{r echo=FALSE}
+
+#Kendall's correlation of flow to concentration per case
+cor.test(SS$Conc_Case, SS$AveFlowRate, method=c("kendall"))
+SS.conc <- ggscatter(SS, x = "Conc_Case", y = "AveFlowRate", 
+          add = "reg.line", conf.int = TRUE, 
+          cor.coef = TRUE, cor.method = "kendall",
+          add.params = list(fill = "#66CCFF"),
+          xlab = "SARS-CoV-2 Concentration per Case", ylab = "Ave Flow Rate (MGD)") + ggtitle("SS")
+
+#visual comparison of SS and JI
+SS.ranks <- ggplot(SS.HVL, aes(FlowRank, Conc_Case)) +
+  geom_boxplot(aes(colour=`FlowRank`)) +
+  theme(axis.title.x = element_blank()) +
+  ggtitle("SS")
+
+JI.ranks <- ggplot(JI.HVL, aes(FlowRank, Conc_Case)) +
+  geom_boxplot(aes(colour=`FlowRank`)) +
+  theme(axis.title.x = element_blank()) +
+  ggtitle("JI")
+plot_grid(SS.ranks, JI.ranks, ncol=2) 
+
+
+##compare concentration using t-test, compare no outliers with ANOVA
+SS.HVL %>%
+  group_by(`FlowRank`) %>%
+  get_summary_stats(Conc_Case, type = "mean_sd")
+
+#t-test of same conditions/sample number, different flow ranks (SS)
+t.test(Conc_Case ~ FlowRank, data = SS.HVL, paired = FALSE)
+
+aov.SS <- aov(Conc_Case ~ as.factor(FlowRank), data = subset(SS, FlowRank %in% c("Low","Medium","High")))
+plot(aov.SS)
+summary(aov.SS)
+TukeyHSD(aov.SS)
+
+
+####
+#Kendall's correlation of flow to copies per case
+cor.test(SS$Conc_Capita, SS$AveFlowRate, method=c("kendall"))
+SS.cop <- ggscatter(SS, x = "Conc_Capita", y = "AveFlowRate", 
+          add = "reg.line", conf.int = TRUE, 
+          cor.coef = TRUE, cor.method = "kendall",
+          add.params = list(fill = "#9999FF"),
+          xlab = "SARS-CoV-2 Copies per Case", ylab = "Ave Flow Rate (MGD)") + ggtitle("SS")
+
+#visual comparison of SS and JI
+SS.HL <- ggplot(SS.HVL, aes(FlowRank, Conc_Capita)) +
+  geom_boxplot(aes(colour=`FlowRank`)) +
+  theme(axis.title.x = element_blank()) +
+  ylim(0,300000) + 
+  ggtitle("SS")
+
+JI.HL <- ggplot(JI.HVL, aes(FlowRank, Conc_Capita)) +
+  geom_boxplot(aes(colour=`FlowRank`)) +
+  ylim(0,300000) +
+  theme(axis.title.x = element_blank()) +
+  ggtitle("JI")
+plot_grid(SS.HL, JI.HL, ncol = 2) 
+
+##compare concentration using t-test, compare no outliers with ANOVA
+SS.HVL %>%
+  group_by(`FlowRank`) %>%
+  get_summary_stats(Conc_Capita, type = "mean_sd")
+
+#t-test of same conditions/sample number, different flow ranks (SS)
+t.test(Conc_Capita ~ FlowRank, data = SS.HVL, paired = FALSE)
+
+aov.SS <- aov(Conc_Capita ~ as.factor(FlowRank), data = subset(SS, FlowRank %in% c("Low","Medium","High")))
+plot(aov.SS)
+summary(aov.SS)
+TukeyHSD(aov.SS)
+
+###kendalls correlation of TSS to flow
+cor.test(SS$AveFlowRate, SS$TSS, method=c("kendall"))
+SS.TSS <- ggscatter(SS, x = "AveFlowRate", y = "TSS", 
+          add = "reg.line", conf.int = TRUE, 
+          cor.coef = TRUE, cor.method = "kendall",
+          add.params = list(fill = "#339966"),
+          xlab = "Ave Flow Rate (MGD)", ylab = "TSS (mg/L)") + ggtitle("SS")
+```
+
+
+
+###JI WWTP
+```{r echo=FALSE}
+#Kendall's correlation to concentration per case 
+cor.test(JI$Conc_Case, JI$AveFlowRate, method=c("kendall"))
+JI.conc <- ggscatter(JI, x = "Conc_Case", y = "AveFlowRate", 
+          add = "reg.line", conf.int = TRUE, 
+          cor.coef = TRUE, cor.method = "kendall",
+          add.params = list(fill = "#66CCFF"),
+          xlab = "SARS-CoV-2 Concentration per Case", ylab = "Ave Flow Rate (MGD)") + ggtitle("JI")
+
+
+##compare concentration using t-test, compare no outliers with ANOVA
+JI.HVL  %>%
+  group_by(`FlowRank`) %>%
+  get_summary_stats(Conc_Case, type = "mean_sd")
+
+#t-test of same conditions/sample number, different flow ranks (JI)
+t.test(Conc_Case ~ FlowRank, data = JI.HVL, paired = FALSE)
+
+aov.JI <- aov(Conc_Case ~ as.factor(FlowRank), data = subset(JI, FlowRank %in% c("Low","Medium","High")))
+plot(aov.JI)
+summary(aov.JI)
+TukeyHSD(aov.JI)
+
+
+
+###
+#Kendall's correlation of flow to copies per case
+cor.test(JI$Conc_Capita, JI$AveFlowRate, method=c("kendall"))
+JI.cop <- ggscatter(JI, x = "Conc_Capita", y = "AveFlowRate", 
+          add = "reg.line", conf.int = TRUE, 
+          cor.coef = TRUE, cor.method = "kendall",
+          add.params = list(fill = "#9999FF"),
+          xlab = "SARS-CoV-2 Copies per Case", ylab = "Ave Flow Rate (MGD)") + ggtitle("JI")
+
+
+##compare concentration using t-test, compare no outliers with ANOVA
+JI.HVL  %>%
+  group_by(`FlowRank`) %>%
+  get_summary_stats(Conc_Capita, type = "mean_sd")
+
+#t-test of same conditions/sample number, different flow ranks (JI)
+t.test(Conc_Capita ~ FlowRank, data = JI.HVL, paired = FALSE)
+
+aov.JI <- aov(Conc_Capita ~ as.factor(FlowRank), data = subset(JI, FlowRank %in% c("Low","Medium","High")))
+plot(aov.JI)
+summary(aov.JI)
+TukeyHSD(aov.JI)
+
+
+###kendalls correlation of TSS to flow
+cor.test(JI$AveFlowRate, JI$TSS, method=c("kendall"))
+JI.TSS <- ggscatter(JI, x = "AveFlowRate", y = "TSS", 
+          add = "reg.line", conf.int = TRUE, 
+          cor.coef = TRUE, cor.method = "kendall",
+          add.params = list(fill = "#339966"),
+          xlab = "Ave Flow Rate (MGD)", ylab = "TSS (mg/L)") + ggtitle("JI")
+```
+
+
+```{r echo=FALSE}
+
+#arrange data for visual comparison
+plot_grid(JI.conc,SS.conc,  nrow=2)  
+#remove outliers (1 in JI, 2 in SS) - doesnt change significance
+plot_grid(JI.conc+ xlim(0,3250),SS.conc + xlim(0,3250),  nrow=2)  
+
+plot_grid(JI.cop, SS.cop, nrow=2) 
+plot_grid(JI.TSS, SS.TSS, nrow=2) 
+
+
+```
+

@@ -1,0 +1,969 @@
+---
+title: "Time, Temp and additional Parameters Analysis"
+author: "Melissa Schussman"
+date: "2/24/2022"
+output: html_document
+---
+Shared OneDrive is synchronized on my local machine in the directory `~/OneDrive - UWM/'. It must not be the case for your computer,  will thus have to change slightly the path to access the files. 
+###Time and Temperature analysis 
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r echo=FALSE, include=FALSE}
+#clear workspace
+rm(list=ls(all=FALSE))
+ls()
+set.seed(123)
+```
+
+
+```{r echo=FALSE, include=FALSE}
+#import libraries for data analysis
+library(data.table)
+library(dplyr)
+library(reshape2)
+library(pander)
+require(gridExtra)
+library(ggpubr)
+library(tidyverse)      
+library(lubridate)     
+library(fpp2)         
+library(zoo)            
+library(openxlsx)
+library(ggplot2)
+library(rstatix)
+library(cowplot)
+library(ggplot2)
+
+
+
+```
+
+
+```{r echo=FALSE, include=FALSE}
+
+#import data
+
+#import data - all data from 8/25/20-8/25/21
+library(readxl)
+SARSConcPerCase <- openxlsx::read.xlsx("~/OneDrive - UWM/Melissa-neighborhoods/final thesis/travel time paper/JI.SS.all.xlsx", sheet = "noLOD", colNames = TRUE) 
+head(SARSConcPerCase, 3)
+
+#confirm date format
+Date <- openxlsx::convertToDate(SARSConcPerCase$SampleCollectDate)
+
+#set WWTP as factor
+SARSConcPerCase$WWTPName<-as.factor(SARSConcPerCase$WWTPName)
+levels(SARSConcPerCase$WWTPName)
+SARSConcPerCase <-subset(SARSConcPerCase, WWTPName == "Milwaukee Jones Island" | WWTPName == "Milwaukee South Shore")
+
+```
+
+
+#SARS-CoV-2 Copies per case
+```{r echo=FALSE}
+
+ggplot(SARSConcPerCase, aes(Date, Conc_Capita)) +
+  geom_point(aes(colour=`WWTPName`)) +
+  facet_wrap( ~ `WWTPName`) +
+  ggtitle("Average SARS-CoV-2 Copies per Case")
+
+mean.data <- SARSConcPerCase %>%
+  group_by(`WWTPName`) %>%
+  summarize(
+    mean = mean(ConcPerCaseRate))
+
+  SARSConcPerCase  %>%
+  group_by(`WWTPName`) %>%
+  get_summary_stats(Conc_Capita, type = "mean_sd")
+
+t.test(Conc_Capita ~ WWTPName, data = SARSConcPerCase, paired = TRUE)
+
+#box plot comparison
+ggplot(SARSConcPerCase, aes(Date, Conc_Capita)) +
+  geom_boxplot(aes(colour=`WWTPName`)) +
+  scale_y_continuous() +
+   facet_wrap( ~ `WWTPName`) +
+  ylab("Copies per Case") +
+  theme(axis.title.x = element_blank()) +
+  ggtitle("Average SARS-CoV-2 Copies per Case")
+
+```
+
+
+
+#Warm versus cold months - SS copies/case 
+```{r echo=FALSE}
+
+##temperature based (warmest versus coolest months) comparison of SARS-CoV-2 load
+
+SS_Ave_Temp<-subset(SARSConcPerCase, WWTPName == "Milwaukee South Shore")
+#SS_Ave_Temp$Month <-as.character(SS_Ave_Temp$Month)
+SS_Ave_Temp_Warm<-subset(SS_Ave_Temp, Month == "Aug" | Month == "Sept" | Month == "Oct")
+SS_Ave_Temp_Warm$Month <- factor(SS_Ave_Temp_Warm$Month, levels=c("Aug", "Sept", "Oct"))
+SS_Ave_Temp_Cold<-subset(SS_Ave_Temp, Month == "Feb" | Month == "March" | Month == "April")
+SS_Ave_Temp_Cold$Month <- factor(SS_Ave_Temp_Cold$Month, levels=c("Feb", "March", "April"))
+
+
+# Basic box plot
+SummerBOXPlot <- ggplot (SS_Ave_Temp_Warm, aes(x = Month, y = Conc_Capita)) + 
+  geom_boxplot(aes(colour=`Month`))+
+  scale_color_manual (values=c("Aug" = "orangered1","Sept" = "red4", "Oct" = "orange"))+
+   ylab(label = "SARS CoV-2 Copies per Case") + xlab(label = "") +
+  theme(axis.ticks.x = element_blank(),
+        legend.position = "None") + ggtitle("SS Warm Months")
+
+# Basic box plot
+WinterBOXPlot <- ggplot (SS_Ave_Temp_Cold, aes(x = Month, y = Conc_Capita)) + 
+  geom_boxplot(aes(colour=`Month`))+
+     ylab(label = "SARS-Cov-2 Copies per Case") + xlab(label = "") +
+  scale_color_manual (values=c("Feb" = "steelblue2","March" = "royalblue3", "April" = "lightskyblue2"))+
+  theme(axis.ticks.x = element_blank(),
+        legend.position = "None") + ggtitle("SS Cold Months")
+
+#both plots together - compare warm vs cold
+plot_grid(SummerBOXPlot + ylim(0, 225000), WinterBOXPlot + ylim(0, 225000), ncol = 2) + ggtitle("Warmest Versus Coldest Months SS")
+
+###ANOVA
+# Warm
+aov.warm <- aov(Conc_Capita ~ as.factor(Month), data = subset(SS_Ave_Temp, Month %in% c("Aug","Sept","Oct")))
+plot(aov.warm)
+summary(aov.warm)
+TukeyHSD(aov.warm)
+
+# Cold
+aov.cold <- aov(Conc_Capita ~ as.factor(Month), data = subset(SS_Ave_Temp, Month %in% c("Feb","March","April")))
+plot(aov.cold)
+summary(aov.cold)
+TukeyHSD(aov.cold)
+
+#create usable data for t-test
+SS_Ave_Temp_Warm$Type<-"warm"
+SS_Ave_Temp_Cold$Type<-"cold"
+data.wwtp<-rbind(SS_Ave_Temp_Warm, SS_Ave_Temp_Cold)
+
+#perform t-test (not paired due to uneven values in warm and cold datasets)
+t.test(Conc_Capita ~ Type, paired = FALSE, data=data.wwtp)
+
+```
+
+
+#PARAMETERS
+```{r echo=FALSE}
+
+###DAILY AVERAGE TEMP (C)
+#visual comparison
+ggplot(SARSConcPerCase, aes(Date, AveTemp)) +
+  geom_point(aes(colour=`WWTPName`)) +
+  facet_wrap( ~ `WWTPName`) +
+  ggtitle("Daily average Temperature")
+
+#create statistical data for t-test
+SARSConcPerCase  %>%
+  group_by(`WWTPName`) %>%
+  get_summary_stats(AveTemp, type = "mean_sd")
+
+#paired ttest (JI and SS plants/ same day/ same general conditions)
+t.test(AveTemp ~ WWTPName, data = SARSConcPerCase, paired = TRUE)
+
+
+
+###AVERAGE FLOW RATE (MGD)
+#visual comparison
+ggplot(SARSConcPerCase, aes(Date, AveFlowRate)) +
+  geom_point(aes(colour=`WWTPName`)) +
+  facet_wrap( ~ `WWTPName`) +
+  ggtitle("Average Flow Rate")
+
+#create statistical data for t-test
+SARSConcPerCase  %>%
+  group_by(`WWTPName`) %>%
+  get_summary_stats(AveFlowRate, type = "mean_sd")
+
+#paired ttest (JI and SS plants/ same day/ same general conditions)
+t.test(AveFlowRate ~ WWTPName, data = SARSConcPerCase, paired = TRUE)
+
+###TSS (MG/L)
+#visual comparison
+ggplot(SARSConcPerCase, aes(Date, TSS)) +
+  geom_point(aes(colour=`WWTPName`)) +
+  facet_wrap( ~ `WWTPName`) +
+  ggtitle("Daily TSS")
+
+#create statistical data for t-test
+SARSConcPerCase  %>%
+  group_by(`WWTPName`) %>%
+  get_summary_stats(TSS, type = "mean_sd")
+
+#paired ttest (JI and SS plants/ same day/ same general conditions)
+t.test(TSS ~ WWTPName, data = SARSConcPerCase, paired = TRUE)
+
+###BOD
+#visual comparison
+ggplot(SARSConcPerCase, aes(Date, BOD)) +
+  geom_point(aes(colour=`WWTPName`)) +
+  facet_wrap( ~ `WWTPName`) +
+  ggtitle("Daily BOD")
+
+#create statistical data for t-test
+SARSConcPerCase  %>%
+  group_by(`WWTPName`) %>%
+  get_summary_stats(BOD, type = "mean_sd")
+
+#paired ttest (JI and SS plants/ same day/ same general conditions)
+t.test(BOD ~ WWTPName, data = SARSConcPerCase, paired = TRUE)
+
+```
+
+###SS Parameters
+```{r echo=FALSE}
+
+##temperature based (warmest versus coolest months) comparison of various WWTP parameters
+
+### TEMPERATURE
+SummerTemp <- ggplot (SS_Ave_Temp_Warm, aes(x = Month, y = AveTemp)) + 
+  geom_boxplot(aes(colour=`Month`))+
+  scale_color_manual (values=c("Aug" = "orangered1","Sept" = "red4", "Oct" = "orange"))+
+  theme(axis.ticks.x = element_blank(),
+        legend.position = "None") + ggtitle("SS Monthly Average Temperature - Warm Months")
+
+WinterTemp <- ggplot (SS_Ave_Temp_Cold, aes(x = Month, y = AveTemp)) + 
+  geom_boxplot(aes(colour=`Month`))+
+  scale_color_manual (values=c("Feb" = "steelblue2","March" = "royalblue3", "April" = "lightskyblue2"))+
+  theme(axis.ticks.x = element_blank(),
+        legend.position = "None") + ggtitle("SS Monthly Temperature - Cold Months")
+
+#both plots together - compare warm vs cold
+plot_grid(SummerTemp + ylim(5,20), WinterTemp + ylim(5,20), ncol = 2) + ggtitle("Warmest Versus Coldest Months - Temp")
+
+###ANOVA for comparison of variables in each group (hot v. cold)
+# Warm
+temp.warm <- aov(AveTemp ~ as.factor(Month), data = subset(SS_Ave_Temp, Month %in% c("Aug","Sept","Oct")))
+#plot(flow.warm)
+summary(temp.warm)
+TukeyHSD(temp.warm)
+
+# Cold
+temp.cold <- aov(AveTemp ~ as.factor(Month), data = subset(SS_Ave_Temp, Month %in% c("Feb","March","April")))
+#plot(flow.cold)
+summary(temp.cold)
+TukeyHSD(temp.cold)
+
+#create usable data for t-test
+SS_Ave_Temp_Warm$Type<-"warm"
+SS_Ave_Temp_Cold$Type<-"cold"
+data.wwtpSS<-rbind(SS_Ave_Temp_Warm, SS_Ave_Temp_Cold)
+
+#perform Welch's t-test (not paired due to uneven values in hot v. cold data sets)
+t.test(AveTemp ~ Type, paired = FALSE, data=data.wwtpSS)
+
+
+###CASE RATE
+SummerCRSS <- ggplot (SS_Ave_Temp_Warm, aes(x = Month, y = case_rate)) + 
+  geom_boxplot(aes(colour=`Month`))+
+  scale_color_manual (values=c("Aug" = "orangered1","Sept" = "red4", "Oct" = "orange"))+
+  theme(axis.ticks.x = element_blank(),
+        legend.position = "None") + ggtitle("SS Case Rate - Warm Months")
+
+WinterCRSS <- ggplot (SS_Ave_Temp_Cold, aes(x = Month, y = case_rate)) + 
+  geom_boxplot(aes(colour=`Month`))+
+  scale_color_manual (values=c("Feb" = "steelblue2","March" = "royalblue3", "April" = "lightskyblue2"))+
+  theme(axis.ticks.x = element_blank(),
+        legend.position = "None") + ggtitle("SS Case Rate - Cold Months")
+
+#both plots together - compare warm vs cold
+plot_grid(SummerCRSS, WinterCRSS, ncol = 2) + ggtitle("Warmest Versus Coldest Months - Case Rate")
+
+###ANOVA
+# Warm
+CR.warmSS <- aov(case_rate ~ as.factor(Month), data = subset(SS_Ave_Temp, Month %in% c("Aug","Sept","Oct")))
+#plot(flow.warmJI)
+summary(CR.warmSS)
+TukeyHSD(CR.warmSS)
+
+# Cold
+CR.coldSS <- aov(case_rate ~ as.factor(Month), data = subset(SS_Ave_Temp, Month %in% c("Feb","March","April")))
+#plot(flow.coldJI)
+summary(CR.coldSS)
+TukeyHSD(CR.coldSS)
+
+#perform t-test (not paired due to uneven values)
+t.test(case_rate ~ Type, paired = FALSE, data=data.wwtpSS)
+
+
+
+### DAILY AVERAGE FLOW
+SummerFlow <- ggplot (SS_Ave_Temp_Warm, aes(x = Month, y = AveFlowRate)) + 
+  geom_boxplot(aes(colour=`Month`))+
+  scale_color_manual (values=c("Aug" = "orangered1","Sept" = "red4", "Oct" = "orange"))+
+  theme(axis.ticks.x = element_blank(),
+        legend.position = "None") + ggtitle("SS Flow - Warm Months")
+
+WinterFlow <- ggplot (SS_Ave_Temp_Cold, aes(x = Month, y = AveFlowRate)) + 
+  geom_boxplot(aes(colour=`Month`))+
+  scale_color_manual (values=c("Feb" = "steelblue2","March" = "royalblue3", "April" = "lightskyblue2"))+
+  theme(axis.ticks.x = element_blank(),
+        legend.position = "None") + ggtitle("SS Flow - Cold Months")
+
+#both plots together - compare warm vs cold
+plot_grid(SummerFlow + ylim(0,200), WinterFlow + ylim(0,200), ncol = 2) + ggtitle("Warmest Versus Coldest Months - Flow")
+
+###ANOVA
+# Warm
+flow.warm <- aov(AveFlowRate ~ as.factor(Month), data = subset(SS_Ave_Temp, Month %in% c("Aug","Sept","Oct")))
+#plot(flow.warm)
+summary(flow.warm)
+TukeyHSD(flow.warm)
+
+# Cold
+flow.cold <- aov(AveFlowRate ~ as.factor(Month), data = subset(SS_Ave_Temp, Month %in% c("Feb","March","April")))
+#plot(flow.cold)
+summary(flow.cold)
+TukeyHSD(flow.cold)
+
+#perform t-test (not paired due to uneven values)
+t.test(AveFlowRate ~ Type, paired = FALSE, data=data.wwtpSS)
+
+
+
+
+### TSS
+SummerTSS <- ggplot (SS_Ave_Temp_Warm, aes(x = Month, y = TSS)) + 
+  geom_boxplot(aes(colour=`Month`))+
+  scale_color_manual (values=c("Aug" = "orangered1","Sept" = "red4", "Oct" = "orange"))+
+  theme(axis.ticks.x = element_blank(),
+        legend.position = "None") + ggtitle("SS TSS - Warm Months")
+
+WinterTSS <- ggplot (SS_Ave_Temp_Cold, aes(x = Month, y = TSS)) + 
+  geom_boxplot(aes(colour=`Month`))+
+  scale_color_manual (values=c("Feb" = "steelblue2","March" = "royalblue3", "April" = "lightskyblue2"))+
+  theme(axis.ticks.x = element_blank(),
+        legend.position = "None") + ggtitle("SS TSS - Cold Months")
+
+#both plots together - compare warm vs cold
+plot_grid(SummerTSS+ ylim(0,500), WinterTSS+ ylim(0,500), ncol = 2) + ggtitle("Warmest Versus Coldest Months - TSS")
+
+###ANOVA
+# Warm
+TSS.warm <- aov(TSS ~ as.factor(Month), data = subset(SS_Ave_Temp, Month %in% c("Aug","Sept","Oct")))
+#plot(TSS.warm)
+summary(TSS.warm)
+TukeyHSD(TSS.warm)
+
+# Cold
+TSS.cold <- aov(TSS ~ as.factor(Month), data = subset(SS_Ave_Temp, Month %in% c("Feb","March","April")))
+#plot(TSS.cold)
+summary(TSS.cold)
+TukeyHSD(TSS.cold)
+
+#perform t-test (not paired due to uneven values)
+t.test(TSS ~ Type, paired = FALSE, data=data.wwtpSS)
+
+
+
+
+### BOD
+SummerBOD <- ggplot (SS_Ave_Temp_Warm, aes(x = Month, y = BOD)) + 
+  geom_boxplot(aes(colour=`Month`))+
+  scale_color_manual (values=c("Aug" = "orangered1","Sept" = "red4", "Oct" = "orange"))+
+  theme(axis.ticks.x = element_blank(),
+        legend.position = "None") + ggtitle("SS BOD - Warm Months")
+
+WinterBOD <- ggplot (SS_Ave_Temp_Cold, aes(x = Month, y = BOD)) + 
+  geom_boxplot(aes(colour=`Month`))+
+  scale_color_manual (values=c("Feb" = "steelblue2","March" = "royalblue3", "April" = "lightskyblue2"))+
+  theme(axis.ticks.x = element_blank(),
+        legend.position = "None") + ggtitle("SS BOD - Cold Months")
+
+#both plots together - compare warm vs cold
+plot_grid(SummerBOD+ ylim(0,650), WinterBOD+ ylim(0,650), ncol = 2) + ggtitle("Warmest Versus Coldest Months - BOD")
+
+###ANOVA
+# Warm
+BOD.warm <- aov(BOD ~ as.factor(Month), data = subset(SS_Ave_Temp, Month %in% c("Aug","Sept","Oct")))
+#plot(BOD.warm)
+summary(BOD.warm)
+TukeyHSD(BOD.warm)
+
+# Cold
+BOD.cold <- aov(BOD ~ as.factor(Month), data = subset(SS_Ave_Temp, Month %in% c("Feb","March","April")))
+#plot(BOD.cold)
+summary(BOD.cold)
+TukeyHSD(BOD.cold)
+
+#perform t-test (not paired due to uneven values)
+t.test(BOD ~ Type, paired = FALSE, data=data.wwtpSS)
+```
+
+
+#Warm versus cold months - JI copies/case 
+```{r echo=FALSE}
+
+##temperature based (warmest versus coolest months) comparison of SARS-CoV-2 load
+#processed the same as SS parameters
+
+JI_Ave_Temp<-subset(SARSConcPerCase, WWTPName == "Milwaukee Jones Island")
+JI_Ave_Temp_Warm<-subset(JI_Ave_Temp, Month == "Aug" | Month == "Sept" | Month == "Oct")
+JI_Ave_Temp_Warm$Month <- factor(JI_Ave_Temp_Warm$Month, levels=c("Aug", "Sept", "Oct"))
+JI_Ave_Temp_Cold<-subset(JI_Ave_Temp, Month == "Feb" | Month == "March" | Month == "April")
+JI_Ave_Temp_Cold$Month <- factor(JI_Ave_Temp_Cold$Month, levels=c("Feb", "March", "April"))
+
+# Basic box plot
+JISummerBOXPlot <- ggplot (JI_Ave_Temp_Warm, aes(x = Month, y = Conc_Capita)) + 
+  geom_boxplot(aes(colour=`Month`))+
+  scale_color_manual (values=c("Aug" = "orangered1","Sept" = "red4", "Oct" = "orange"))+
+     ylab(label = "Copies per Case") + xlab(label = "") +
+  theme(axis.ticks.x = element_blank(),
+        legend.position = "None") + ggtitle("JI Warm Months")
+
+# Basic box plot
+JIWinterBOXPlot <- ggplot (JI_Ave_Temp_Cold, aes(x = Month, y = Conc_Capita)) + 
+  geom_boxplot(aes(colour=`Month`))+
+     ylab(label = "Copies per Case") + xlab(label = "") +
+  scale_color_manual (values=c("Feb" = "steelblue2","March" = "royalblue3", "April" = "lightskyblue2"))+
+  theme(axis.ticks.x = element_blank(),
+        legend.position = "None") + ggtitle("JI Cold Months")
+
+#both plots together - compare warm vs cold
+plot_grid(JISummerBOXPlot + ylim(0, 225000), JIWinterBOXPlot + ylim(0, 225000), ncol = 2) + ggtitle("Warmest Versus Coldest Months SS")
+
+###ANOVA
+# Warm
+aov.warm <- aov(Conc_Capita ~ as.factor(Month), data = subset(JI_Ave_Temp, Month %in% c("Aug","Sept","Oct")))
+#plot(aov.warm)
+summary(aov.warm)
+TukeyHSD(aov.warm)
+
+# Cold
+aov.cold <- aov(Conc_Capita ~ as.factor(Month), data = subset(JI_Ave_Temp, Month %in% c("Feb","March","April")))
+#plot(aov.cold)
+summary(aov.cold)
+TukeyHSD(aov.cold)
+
+#create usable data for t-test
+JI_Ave_Temp_Warm$Type<-"warm"
+JI_Ave_Temp_Cold$Type<-"cold"
+JI.data.wwtp<-rbind(JI_Ave_Temp_Warm, JI_Ave_Temp_Cold)
+
+#perform t-test (not paired due to uneven values)
+t.test(Conc_Capita ~ Type, paired = FALSE, data=JI.data.wwtp)
+```
+
+###JI Parameters
+```{r echo=FALSE}
+
+##temperature based (warmest versus coolest months) comparison of various WWTP parameters
+
+###DAILY AVERAGE TEMPERATURE
+SummertempJI <- ggplot (JI_Ave_Temp_Warm, aes(x = Month, y = AveTemp)) + 
+  geom_boxplot(aes(colour=`Month`))+
+  scale_color_manual (values=c("Aug" = "orangered1","Sept" = "red4", "Oct" = "orange"))+
+  theme(axis.ticks.x = element_blank(),
+        legend.position = "None") + ggtitle("JI Monthly Average Temperature - Warm Months")
+
+WintertempJI <- ggplot (JI_Ave_Temp_Cold, aes(x = Month, y = AveTemp)) + 
+  geom_boxplot(aes(colour=`Month`))+
+  scale_color_manual (values=c("Feb" = "steelblue2","March" = "royalblue3", "April" = "lightskyblue2"))+
+  theme(axis.ticks.x = element_blank(),
+        legend.position = "None") + ggtitle("JI Monthly Temperature - Cold Months")
+
+#both plots together - compare warm vs cold
+plot_grid(SummertempJI + ylim(5,20), WintertempJI + ylim(5,20), ncol = 2) + ggtitle("Warmest Versus Coldest Months - Temps")
+
+###ANOVA
+# Warm
+temp.warmJI <- aov(AveTemp ~ as.factor(Month), data = subset(JI_Ave_Temp, Month %in% c("Aug","Sept","Oct")))
+#plot(flow.warmJI)
+summary(temp.warmJI)
+TukeyHSD(temp.warmJI)
+
+# Cold
+temp.coldJI <- aov(AveTemp ~ as.factor(Month), data = subset(JI_Ave_Temp, Month %in% c("Feb","March","April")))
+#plot(flow.coldJI)
+summary(temp.coldJI)
+TukeyHSD(temp.coldJI)
+
+#perform t-test (not paired due to uneven values)
+t.test(AveTemp ~ Type, paired = FALSE, data=JI.data.wwtp)
+
+
+
+
+#CASE RATE
+SummerCRJI <- ggplot (JI_Ave_Temp_Warm, aes(x = Month, y = case_rate)) + 
+  geom_boxplot(aes(colour=`Month`))+
+  scale_color_manual (values=c("Aug" = "orangered1","Sept" = "red4", "Oct" = "orange"))+
+  theme(axis.ticks.x = element_blank(),
+        legend.position = "None") + ggtitle("JI Case Rate - Warm Months")
+
+WinterCRJI <- ggplot (JI_Ave_Temp_Cold, aes(x = Month, y = case_rate)) + 
+  geom_boxplot(aes(colour=`Month`))+
+  scale_color_manual (values=c("Feb" = "steelblue2","March" = "royalblue3", "April" = "lightskyblue2"))+
+  theme(axis.ticks.x = element_blank(),
+        legend.position = "None") + ggtitle("JI Case Rate - Cold Months")
+
+#both plots together - compare warm vs cold
+plot_grid(SummerCRJI, WinterCRJI, ncol = 2) + ggtitle("Warmest Versus Coldest Months - Temps")
+
+###ANOVA
+# Warm
+CR.warmJI <- aov(case_rate ~ as.factor(Month), data = subset(JI_Ave_Temp, Month %in% c("Aug","Sept","Oct")))
+#plot(flow.warmJI)
+summary(temp.warmJI)
+TukeyHSD(temp.warmJI)
+
+# Cold
+CR.coldJI <- aov(case_rate ~ as.factor(Month), data = subset(JI_Ave_Temp, Month %in% c("Feb","March","April")))
+#plot(flow.coldJI)
+summary(CR.coldJI)
+TukeyHSD(CR.coldJI)
+
+#perform t-test (not paired due to uneven values)
+t.test(case_rate ~ Type, paired = FALSE, data=JI.data.wwtp)
+
+
+
+### DAILY AVERAGE FLOW
+SummerFlowJI <- ggplot (JI_Ave_Temp_Warm, aes(x = Month, y = AveFlowRate)) + 
+  geom_boxplot(aes(colour=`Month`))+
+  scale_color_manual (values=c("Aug" = "orangered1","Sept" = "red4", "Oct" = "orange"))+
+  theme(axis.ticks.x = element_blank(),
+        legend.position = "None") + ggtitle("JI Flow - Warm Months")
+
+WinterFlowJI <- ggplot (JI_Ave_Temp_Cold, aes(x = Month, y = AveFlowRate)) + 
+  geom_boxplot(aes(colour=`Month`))+
+  scale_color_manual (values=c("Feb" = "steelblue2","March" = "royalblue3", "April" = "lightskyblue2"))+
+  theme(axis.ticks.x = element_blank(),
+        legend.position = "None") + ggtitle("JI Flow - Cold Months")
+
+#both plots together - compare warm vs cold
+plot_grid(SummerFlowJI + ylim(0,300), WinterFlowJI + ylim(0,300), ncol = 2) + ggtitle("Warmest Versus Coldest Months - Flow")
+
+###ANOVA
+# Warm
+flow.warmJI <- aov(AveFlowRate ~ as.factor(Month), data = subset(JI_Ave_Temp, Month %in% c("Aug","Sept","Oct")))
+#plot(flow.warmJI)
+summary(flow.warmJI)
+TukeyHSD(flow.warmJI)
+
+# Cold
+flow.coldJI <- aov(AveFlowRate ~ as.factor(Month), data = subset(JI_Ave_Temp, Month %in% c("Feb","March","April")))
+#plot(flow.coldJI)
+summary(flow.coldJI)
+TukeyHSD(flow.coldJI)
+
+#perform t-test (not paired due to uneven values)
+t.test(AveFlowRate ~ Type, paired = FALSE, data=JI.data.wwtp)
+
+
+
+### TSS
+SummerTSSJI <- ggplot (JI_Ave_Temp_Warm, aes(x = Month, y = TSS)) + 
+  geom_boxplot(aes(colour=`Month`))+
+  scale_color_manual (values=c("Aug" = "orangered1","Sept" = "red4", "Oct" = "orange"))+
+  theme(axis.ticks.x = element_blank(),
+        legend.position = "None") + ggtitle("JI TSS - Warm Months")
+
+WinterTSSJI <- ggplot (JI_Ave_Temp_Cold, aes(x = Month, y = TSS)) + 
+  geom_boxplot(aes(colour=`Month`))+
+  scale_color_manual (values=c("Feb" = "steelblue2","March" = "royalblue3", "April" = "lightskyblue2"))+
+  theme(axis.ticks.x = element_blank(),
+        legend.position = "None") + ggtitle("JI TSS - Cold Months")
+
+#both plots together - compare warm vs cold
+plot_grid(SummerTSSJI + ylim(0,500), WinterTSSJI + ylim(0,500), ncol = 2) + ggtitle("Warmest Versus Coldest Months - TSS")
+
+###ANOVA
+# Warm
+TSS.warmJI <- aov(TSS ~ as.factor(Month), data = subset(JI_Ave_Temp, Month %in% c("Aug","Sept","Oct")))
+#plot(TSS.warmJI)
+summary(TSS.warmJI)
+TukeyHSD(TSS.warmJI)
+
+# Cold
+TSS.coldJI <- aov(TSS ~ as.factor(Month), data = subset(JI_Ave_Temp, Month %in% c("Feb","March","April")))
+#plot(TSS.coldJI)
+summary(TSS.coldJI)
+TukeyHSD(TSS.coldJI)
+
+#perform t-test (not paired due to uneven values)
+t.test(TSS ~ Type, paired = FALSE, data=JI.data.wwtp)
+
+
+
+
+### BOD
+SummerBODJI <- ggplot (JI_Ave_Temp_Warm, aes(x = Month, y = BOD)) + 
+  geom_boxplot(aes(colour=`Month`))+
+  scale_color_manual (values=c("Aug" = "orangered1","Sept" = "red4", "Oct" = "orange"))+
+  theme(axis.ticks.x = element_blank(),
+        legend.position = "None") + ggtitle("JI BOD - Warm Months")
+
+WinterBODJI <- ggplot (JI_Ave_Temp_Cold, aes(x = Month, y = BOD)) + 
+  geom_boxplot(aes(colour=`Month`))+
+  scale_color_manual (values=c("Feb" = "steelblue2","March" = "royalblue3", "April" = "lightskyblue2"))+
+  theme(axis.ticks.x = element_blank(),
+        legend.position = "None") + ggtitle("JI BOD - Cold Months")
+
+#both plots together - compare warm vs cold
+plot_grid(SummerBODJI+ ylim(0,550), WinterBODJI + ylim(0,550), ncol = 2) + ggtitle("Warmest Versus Coldest Months - BOD")
+
+###ANOVA
+# Warm
+BOD.warmJI <- aov(BOD ~ as.factor(Month), data = subset(JI_Ave_Temp, Month %in% c("Aug","Sept","Oct")))
+#plot(BOD.warmJI)
+summary(BOD.warmJI)
+TukeyHSD(BOD.warmJI)
+
+# Cold
+BOD.coldJI <- aov(BOD ~ as.factor(Month), data = subset(JI_Ave_Temp, Month %in% c("Feb","March","April")))
+#plot(BOD.coldJI)
+summary(BOD.coldJI)
+TukeyHSD(BOD.coldJI)
+
+#perform t-test (not paired due to uneven values)
+t.test(BOD ~ Type, paired = FALSE, data=JI.data.wwtp)
+```
+
+
+###Visual Comparison 
+```{r echo=FALSE}
+
+##combine plots for easier visual comparison
+
+#SS vs JI copies/case warm vs cold
+plot_grid(SummerBOXPlot + ylim(0, 225000), WinterBOXPlot + ylim(0, 225000),JISummerBOXPlot + ylim(0, 225000), JIWinterBOXPlot + ylim(0, 225000), ncol = 2, nrow=2)  #+ draw_label("SARS-CoV-2 Concentration per Case During Warmest and Coldest Months in SS and JI WWTPs")
+
+
+#SS vs JI temp warm vs cold
+plot_grid(SummerTemp + ylim(7,20), WinterTemp + ylim(7,20), SummertempJI + ylim(7,20), WintertempJI + ylim(7,20), ncol = 2, nrow = 2) + ggtitle("Average Temperature")
+
+#SS vs JI flow warm vs cold
+plot_grid(SummerFlow + ylim(0,300), WinterFlow + ylim(0,300), SummerFlowJI + ylim(0,300), WinterFlowJI + ylim(0,300), ncol = 2, nrow=2) + ggtitle("Daily Average Flow")
+
+#SS vs JI TSS warm vs cold
+plot_grid(SummerTSS+ ylim(0,500), WinterTSS+ ylim(0,500),SummerTSSJI + ylim(0,500), WinterTSSJI+ ylim(0,500), ncol = 2, nrow=2) + ggtitle("TSS")
+
+#SS vs JI BOD warm vs cold
+plot_grid(SummerBOD+ ylim(0,650), WinterBOD+ ylim(0,650),SummerBODJI+ ylim(0,650), WinterBODJI + ylim(0,650), ncol = 2, nrow = 2) + ggtitle("BOD")
+
+#SS vs. JI case rate warm vs cold
+plot_grid(SummerCRSS + ylim(0, 100), WinterCRSS + ylim(0, 100),SummerCRJI + ylim(0, 100), WinterCRJI + ylim(0, 100), ncol = 2, nrow=2)  #+ draw_label("SARS-CoV-2 Concentration per Case During Warmest and Coldest Months in SS and JI WWTPs")
+
+```
+
+
+### ttest between JI hot and SS hot
+```{r echo=FALSE}
+
+t.test(SS_Ave_Temp_Warm$Conc_Capita, JI_Ave_Temp_Warm$Conc_Capita, paired = FALSE)
+t.test(SS_Ave_Temp_Cold$Conc_Capita, JI_Ave_Temp_Cold$Conc_Capita, paired = FALSE)
+t.test(SS_Ave_Temp_Warm$AveTemp, JI_Ave_Temp_Warm$AveTemp, paired = FALSE)
+t.test(SS_Ave_Temp_Cold$AveTemp, JI_Ave_Temp_Cold$AveTemp, paired = FALSE)
+t.test(SS_Ave_Temp_Warm$case_rate, JI_Ave_Temp_Warm$case_rate, paired = FALSE)
+t.test(SS_Ave_Temp_Cold$case_rate, JI_Ave_Temp_Cold$case_rate, paired = FALSE)
+t.test(SS_Ave_Temp_Warm$AveFlowRate, JI_Ave_Temp_Warm$AveFlowRate, paired = FALSE)
+t.test(SS_Ave_Temp_Cold$AveFlowRate, JI_Ave_Temp_Cold$AveFlowRate, paired = FALSE)
+t.test(SS_Ave_Temp_Warm$BOD, JI_Ave_Temp_Warm$BOD, paired = FALSE)
+t.test(SS_Ave_Temp_Cold$BOD, JI_Ave_Temp_Cold$BOD, paired = FALSE)
+t.test(SS_Ave_Temp_Warm$TSS, JI_Ave_Temp_Warm$TSS, paired = FALSE)
+t.test(SS_Ave_Temp_Cold$TSS, JI_Ave_Temp_Cold$TSS, paired = FALSE)
+
+```
+
+
+### correlation in SS  (kendalls)
+```{r echo=FALSE}
+
+##correlation of various parameters to SARS-CoV-2 copies/case using Kendall's tau
+#additional flow analysis in separate rmd (flow_comparison)
+
+#warm months only
+cor.test(SS_Ave_Temp_Warm$Conc_Capita, SS_Ave_Temp_Warm$AveTemp, method=c("kendall"))
+# ggscatter(SS_Ave_Temp_Warm, x = "Conc_Capita", y = "AveTemp", 
+#           add = "reg.line", conf.int = TRUE, 
+#           cor.coef = TRUE, cor.method = "kendall",
+#           xlab = "SARS-CoV-2 Copies per Case", ylab = "Ave Temp")
+
+cor.test(SS_Ave_Temp_Warm$Conc_Capita, SS_Ave_Temp_Warm$AveFlowRate, method=c("kendall"))
+cor.test(SS_Ave_Temp_Warm$Conc_Case, SS_Ave_Temp_Warm$AveFlowRate, method=c("kendall"))
+# ggscatter(SS_Ave_Temp_Warm, x = "Conc_Capita", y = "AveFlowRate",
+#           add = "reg.line", conf.int = TRUE,
+#           cor.coef = TRUE, cor.method = "kendall",
+#           xlab = "SARS-CoV-2 Concentration per Case", ylab = "Ave Flow Rate")
+
+cor.test(SS_Ave_Temp_Warm$Conc_Capita, SS_Ave_Temp_Warm$BOD, method=c("kendall"))
+# ggscatter(SS_Ave_Temp_Warm, x = "Conc_Capita", y = "BOD", 
+#           add = "reg.line", conf.int = TRUE, 
+#           cor.coef = TRUE, cor.method = "kendall",
+#           xlab = "SARS-CoV-2 Copies per Case", ylab = "BOD")
+
+cor.test(SS_Ave_Temp_Warm$Conc_Capita, SS_Ave_Temp_Warm$TSS, method=c("kendall"))
+# ggscatter(SS_Ave_Temp_Warm, x = "Conc_Capita", y = "TSS", 
+#           add = "reg.line", conf.int = TRUE, 
+#           cor.coef = TRUE, cor.method = "kendall",
+#           xlab = "SARS-CoV-2 Copies per Case", ylab = "TSS (mg/L)")
+
+
+
+###cold months only
+cor.test(SS_Ave_Temp_Cold$Conc_Capita, SS_Ave_Temp_Cold$AveTemp, method=c("kendall"))
+# ggscatter(SS_Ave_Temp_Cold, x = "Conc_Capita", y = "AveTemp", 
+#           add = "reg.line", conf.int = TRUE, 
+#           cor.coef = TRUE, cor.method = "kendall",
+#           xlab = "SARS-CoV-2 Copies per Case", ylab = "Ave Temp")
+
+cor.test(SS_Ave_Temp_Cold$Conc_Capita, SS_Ave_Temp_Cold$AveFlowRate, method=c("kendall"))
+cor.test(SS_Ave_Temp_Cold$Conc_Case, SS_Ave_Temp_Cold$AveFlowRate, method=c("kendall"))
+# ggscatter(SS_Ave_Temp_Cold, x = "Conc_Capita", y = "AveFlowRate",
+#           add = "reg.line", conf.int = TRUE,
+#           cor.coef = TRUE, cor.method = "kendall",
+#           xlab = "SARS-CoV-2 Concentration", ylab = "Ave Flow Rate")
+
+cor.test(SS_Ave_Temp_Cold$Conc_Capita, SS_Ave_Temp_Cold$BOD, method=c("kendall"))
+# ggscatter(SS_Ave_Temp_Cold, x = "Conc_Capita", y = "BOD", 
+#           add = "reg.line", conf.int = TRUE, 
+#           cor.coef = TRUE, cor.method = "kendall",
+#           xlab = "SARS-CoV-2 Concentration per Case", ylab = "BOD")
+
+cor.test(SS_Ave_Temp_Cold$Conc_Capita, SS_Ave_Temp_Cold$TSS, method=c("kendall"))
+# ggscatter(SS_Ave_Temp_Cold, x = "Conc_Capita", y = "TSS", 
+#           add = "reg.line", conf.int = TRUE, 
+#           cor.coef = TRUE, cor.method = "kendall",
+#           xlab = "SARS-CoV-2 Concentration per Case", ylab = "TSS (mg/L)")
+
+
+###TOTAL DATA SET (SS)
+cor.test(SS_Ave_Temp$Conc_Capita, SS_Ave_Temp$AveTemp, method=c("kendall"))
+ggscatter(SS_Ave_Temp_Cold, x = "Conc_Capita", y = "AveTemp", 
+          add = "reg.line", conf.int = TRUE, 
+          cor.coef = TRUE, cor.method = "kendall",
+          xlab = "SARS-CoV-2 Copies per Case", ylab = "Ave Temp (C)")
+
+cor.test(SS_Ave_Temp$Conc_Capita, SS_Ave_Temp$BOD, method=c("kendall"))
+ggscatter(SS_Ave_Temp, x = "Conc_Capita", y = "BOD", 
+          add = "reg.line", conf.int = TRUE, 
+          cor.coef = TRUE, cor.method = "kendall",
+          xlab = "SARS-CoV-2 Copies per Case", ylab = "BOD (mg/L)")
+
+cor.test(SS_Ave_Temp$Conc_Capita, SS_Ave_Temp$TSS, method=c("kendall"))
+ggscatter(SS_Ave_Temp, x = "Conc_Capita", y = "TSS", 
+          add = "reg.line", conf.int = TRUE, 
+          cor.coef = TRUE, cor.method = "kendall",
+          xlab = "SARS-CoV-2 Copies per Case", ylab = "TSS (mg/L)")
+
+cor.test(SS_Ave_Temp$Conc_Capita, SS_Ave_Temp$case_rate, method=c("kendall"))
+ggscatter(SS_Ave_Temp, x = "Conc_Capita", y = "case_rate", 
+          add = "reg.line", conf.int = TRUE, 
+          cor.coef = TRUE, cor.method = "kendall",
+          xlab = "SARS-CoV-2 Copies per Case", ylab = "Case Rate per 100,000")
+
+### Flow correlation to SARS-CoV-2 load (copies/case)
+cor.test(SS_Ave_Temp$Conc_Capita, SS_Ave_Temp$AveFlowRate, method=c("kendall"))
+ggscatter(SS_Ave_Temp, x = "Conc_Capita", y = "AveFlowRate", 
+          add = "reg.line", conf.int = TRUE, 
+          cor.coef = TRUE, cor.method = "kendall",
+          xlab = "SARS-CoV-2 Copies per Case", ylab = "Ave Flow Rate (MGD)")
+
+### Flow correlation to SARS-CoV-2 concentration (concentration/case)
+cor.test(SS_Ave_Temp$Conc_Case, SS_Ave_Temp$AveFlowRate, method=c("kendall"))
+ggscatter(SS_Ave_Temp, x = "Conc_Case", y = "AveFlowRate", 
+          add = "reg.line", conf.int = TRUE, 
+          cor.coef = TRUE, cor.method = "kendall",
+          xlab = "SARS-CoV-2 Concentration per Case", ylab = "Ave Flow Rate")
+
+```
+
+
+### correlation in JI  (kendalls)
+```{r echo=FALSE}
+
+##correlation of various parameters to SARS-CoV-2 copies/case using Kendall's tau
+
+#warm months only
+cor.test(JI_Ave_Temp_Warm$Conc_Capita, JI_Ave_Temp_Warm$AveTemp, method=c("kendall"))
+# ggscatter(JI_Ave_Temp_Warm, x = "Conc_Capita", y = "AveTemp", 
+#           add = "reg.line", conf.int = TRUE, 
+#           cor.coef = TRUE, cor.method = "kendall",
+#           xlab = "SARS-CoV-2 Concentration per Case", ylab = "Ave Temp")
+
+cor.test(JI_Ave_Temp_Warm$Conc_Capita, JI_Ave_Temp_Warm$AveFlowRate, method=c("kendall"))
+# ggscatter(JI_Ave_Temp_Warm, x = "Conc_Capita", y = "AveFlowRate", 
+#           add = "reg.line", conf.int = TRUE, 
+#           cor.coef = TRUE, cor.method = "kendall",
+#           xlab = "SARS-CoV-2 Concentration per Case", ylab = "Ave Flow Rate")
+
+cor.test(JI_Ave_Temp_Warm$Conc_Capita, JI_Ave_Temp_Warm$BOD, method=c("kendall"))
+# ggscatter(JI_Ave_Temp_Warm, x = "Conc_Capita", y = "BOD", 
+#           add = "reg.line", conf.int = TRUE, 
+#           cor.coef = TRUE, cor.method = "kendall",
+#           xlab = "SARS-CoV-2 Concentration per Case", ylab = "BOD")
+
+cor.test(JI_Ave_Temp_Warm$Conc_Capita, JI_Ave_Temp_Warm$TSS, method=c("kendall"))
+# ggscatter(JI_Ave_Temp_Warm, x = "Conc_Capita", y = "TSS", 
+#           add = "reg.line", conf.int = TRUE, 
+#           cor.coef = TRUE, cor.method = "kendall",
+#           xlab = "SARS-CoV-2 Concentration per Case", ylab = "TJI")
+
+
+
+###cold months only
+cor.test(JI_Ave_Temp_Cold$Conc_Capita, JI_Ave_Temp_Cold$AveTemp, method=c("kendall"))
+# #ggscatter(JI_Ave_Temp_Cold, x = "Conc_Capita", y = "AveTemp", 
+#           add = "reg.line", conf.int = TRUE, 
+#           cor.coef = TRUE, cor.method = "kendall",
+#           xlab = "SARS-CoV-2 Concentration per Case", ylab = "Ave Temp")
+
+cor.test(JI_Ave_Temp_Cold$Conc_Capita, JI_Ave_Temp_Cold$AveFlowRate, method=c("kendall"))
+# ggscatter(JI_Ave_Temp_Cold, x = "Conc_Capita", y = "AveFlowRate", 
+#           add = "reg.line", conf.int = TRUE, 
+#           cor.coef = TRUE, cor.method = "kendall",
+#           xlab = "SARS-CoV-2 Concentration per Case", ylab = "Ave Flow Rate")
+
+cor.test(JI_Ave_Temp_Cold$Conc_Capita, JI_Ave_Temp_Cold$BOD, method=c("kendall"))
+# ggscatter(JI_Ave_Temp_Cold, x = "Conc_Capita", y = "BOD", 
+#           add = "reg.line", conf.int = TRUE, 
+#           cor.coef = TRUE, cor.method = "kendall",
+#           xlab = "SARS-CoV-2 Concentration per Case", ylab = "BOD")
+
+cor.test(JI_Ave_Temp_Cold$Conc_Capita, JI_Ave_Temp_Cold$TSS, method=c("kendall"))
+# ggscatter(JI_Ave_Temp_Cold, x = "Conc_Capita", y = "TSS", 
+#           add = "reg.line", conf.int = TRUE, 
+#           cor.coef = TRUE, cor.method = "kendall",
+#           xlab = "SARS-CoV-2 Concentration per Case", ylab = "TJI")
+
+
+###TOTAL DATA SET (JI)
+#Kendall's tau empirical p-values and visual represtentation
+
+cor.test(JI_Ave_Temp$Conc_Capita, JI_Ave_Temp$AveTemp, method=c("kendall"))
+ggscatter(JI_Ave_Temp, x = "Conc_Capita", y = "AveTemp", 
+          add = "reg.line", conf.int = TRUE, 
+          cor.coef = TRUE, cor.method = "kendall",
+          xlab = "SARS-CoV-2 Copies per Case", ylab = "Ave Temp (C)")
+
+cor.test(JI_Ave_Temp$Conc_Capita, JI_Ave_Temp$BOD, method=c("kendall"))
+ ggscatter(JI_Ave_Temp, x = "Conc_Capita", y = "BOD", 
+          add = "reg.line", conf.int = TRUE, 
+          cor.coef = TRUE, cor.method = "kendall",
+          xlab = "SARS-CoV-2 Copies per Case", ylab = "BOD (mg/L)")
+
+cor.test(JI_Ave_Temp$Conc_Capita, JI_Ave_Temp$TSS, method=c("kendall"))
+ggscatter(JI_Ave_Temp, x = "Conc_Capita", y = "TSS", 
+          add = "reg.line", conf.int = TRUE, 
+          cor.coef = TRUE, cor.method = "kendall",
+          xlab = "SARS-CoV-2 Copies per Case", ylab = "TSS (mg/L)")
+
+cor.test(JI_Ave_Temp$Conc_Capita, JI_Ave_Temp$case_rate, method=c("kendall"))
+ggscatter(JI_Ave_Temp, x = "Conc_Capita", y = "case_rate", 
+          add = "reg.line", conf.int = TRUE, 
+          cor.coef = TRUE, cor.method = "kendall",
+          xlab = "SARS-CoV-2 Copies per Case", ylab = "Case Rate per 100,000")
+
+### Flow correlation to SARS-CoV-2 load (copiesn/case)
+cor.test(JI_Ave_Temp$Conc_Capita, JI_Ave_Temp$AveFlowRate, method=c("kendall"))
+ggscatter(JI_Ave_Temp, x = "Conc_Capita", y = "AveFlowRate", 
+          add = "reg.line", conf.int = TRUE, 
+          cor.coef = TRUE, cor.method = "kendall",
+          xlab = "SARS-CoV-2 Copies per Case", ylab = "Ave Flow Rate (MGD)")
+
+### Flow correlation to SARS-CoV-2 concentration (concentration/case)
+cor.test(JI_Ave_Temp$Conc_Case, JI_Ave_Temp$AveFlowRate, method=c("kendall"))
+ggscatter(JI_Ave_Temp, x = "Conc_Case", y = "AveFlowRate", 
+          add = "reg.line", conf.int = TRUE, 
+          cor.coef = TRUE, cor.method = "kendall",
+          xlab = "SARS-CoV-2 Concentration per Case", ylab = "Ave Flow Rate (MGD)")
+```
+
+####JI AND SS
+```{r echo=FALSE}
+###TOTAL DATA SET (SS)
+#Kendall's tau empirical p-values and visual representation
+
+cor.test(SARSConcPerCase$Conc_Capita, SARSConcPerCase$AveTemp, method=c("kendall"))
+ggscatter(SARSConcPerCase, x = "Conc_Capita", y = "AveTemp", 
+          add = "reg.line", conf.int = TRUE, 
+          cor.coef = TRUE, cor.method = "kendall",
+          xlab = "SARS-CoV-2 Copies per Case", ylab = "Ave Temp (C)")
+
+cor.test(SARSConcPerCase$Conc_Capita, SARSConcPerCase$BOD, method=c("kendall"))
+ ggscatter(SARSConcPerCase, x = "Conc_Capita", y = "BOD", 
+          add = "reg.line", conf.int = TRUE, 
+          cor.coef = TRUE, cor.method = "kendall",
+          xlab = "SARS-CoV-2 Copies per Case", ylab = "BOD (mg/L)")
+
+cor.test(SARSConcPerCase$Conc_Capita, SARSConcPerCase$TSS, method=c("kendall"))
+ggscatter(SARSConcPerCase, x = "Conc_Capita", y = "TSS", 
+          add = "reg.line", conf.int = TRUE, 
+          cor.coef = TRUE, cor.method = "kendall",
+          xlab = "SARS-CoV-2 Copies per Case", ylab = "TSS (mg/L)")
+
+cor.test(SARSConcPerCase$Conc_Capita, SARSConcPerCase$case_rate, method=c("kendall"))
+ggscatter(SARSConcPerCase, x = "Conc_Capita", y = "case_rate", 
+          add = "reg.line", conf.int = TRUE, 
+          cor.coef = TRUE, cor.method = "kendall",
+          xlab = "SARS-CoV-2 Copies per Case", ylab = "Case Rate per 100,000")
+
+### Flow correlation to SARS-CoV-2 load (copies/case)
+cor.test(SARSConcPerCase$Conc_Capita, SARSConcPerCase$AveFlowRate, method=c("kendall"))
+ggscatter(SARSConcPerCase, x = "Conc_Capita", y = "AveFlowRate", 
+          add = "reg.line", conf.int = TRUE, 
+          cor.coef = TRUE, cor.method = "kendall",
+          xlab = "SARS-CoV-2 Copies per Case", ylab = "Ave Flow Rate (MGD)")
+
+### Flow correlation to SARS-CoV-2 concentration (concentration/case)
+cor.test(SARSConcPerCase$Conc_Case, SARSConcPerCase$AveFlowRate, method=c("kendall"))
+ggscatter(SARSConcPerCase, x = "Conc_Case", y = "AveFlowRate", 
+          add = "reg.line", conf.int = TRUE, 
+          cor.coef = TRUE, cor.method = "kendall",
+          xlab = "SARS-CoV-2 Concentration per Case", ylab = "Ave Flow Rate (MGD)")
+```
+
+
+```{r echo=FALSE}
+
+## Comparison of PMMoV concenrtaion/L wastewater to daily average flow rate
+# to determine how human fecal load varies with flow
+
+###TOTAL DATA SET
+cor.test(SARSConcPerCase$PPMoVConc, SARSConcPerCase$AveFlowRate, method=c("kendall"))
+ggscatter(SARSConcPerCase, x = "PPMoVConc", y = "AveFlowRate", 
+          add = "reg.line", conf.int = TRUE, 
+          cor.coef = TRUE, cor.method = "kendall",
+          add.params = list(fill = "#FF9999"),
+          xlab = "PMMoV Concentration per Liter Wastewater", ylab = "Ave Flow Rate (MGD)")+xlim(0,300000000)
+
+###JI
+cor.test(JI_Ave_Temp$PPMoVConc, JI_Ave_Temp$AveFlowRate, method=c("kendall"))
+JI.PMMoV <- ggscatter(JI_Ave_Temp, x = "PPMoVConc", y = "AveFlowRate", 
+          add = "reg.line", conf.int = TRUE, 
+          outlier.shape = NA,
+          cor.coef = TRUE, cor.method = "kendall",
+          add.params = list(fill = "#FF9999"),
+          xlab = "PMMoV Concentration per Liter Wastewater", ylab = "Ave Flow Rate (MGD)")
+
+###SS
+cor.test(SS_Ave_Temp$PPMoVConc, SS_Ave_Temp$AveFlowRate, method=c("kendall"))
+SS.PMMoV <- ggscatter(SS_Ave_Temp, x = "PPMoVConc", y = "AveFlowRate", 
+          add = "reg.line", conf.int = TRUE,
+          cor.coef = TRUE, cor.method = "kendall",
+          add.params = list(fill = "#FF9999"),
+          xlab = "PMMoV Concentration per Liter Wastewater", ylab = "Ave Flow Rate (MGD)")
+
+plot_grid(JI.PMMoV, SS.PMMoV,  nrow=2)  
+
+#remove outliers (two from JI, 1 from SS)
+plot_grid(JI.PMMoV+xlim(0,100000000),SS.PMMoV+xlim(0,100000000),  nrow=2)  
+
+#linear slope for PMMoV
+JI.lim <- lm(PPMoVConc ~ AveFlowRate, data = JI_Ave_Temp)
+summary(JI.lim)
+SS.lim <- lm(PPMoVConc ~ AveFlowRate, data = SS_Ave_Temp)
+summary(SS.lim)
+lim <- lm(PPMoVConc ~ AveFlowRate, data = SARSConcPerCase)
+summary(lim)
+
+
+```
